@@ -1,4 +1,4 @@
-name: ML Pipeline with GitHub Actions
+name: ML CD Pipeline
 
 on:
   push:
@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  train-evaluate-register:
+
+  train-and-register:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +31,6 @@ jobs:
 
       - name: Show generated files
         run: |
-          ls -R
           echo "----- metrics.json -----"
           cat outputs/metrics.json
           echo "----- champion.json -----"
@@ -53,3 +53,50 @@ jobs:
         with:
           name: model-registry
           path: registry/champion.json
+
+  build-inference-image:
+    runs-on: ubuntu-latest
+    needs: train-and-register
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model
+          path: outputs/
+
+      - name: Download registry artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: model-registry
+          path: registry/
+
+      - name: Prepare deployment files
+        run: |
+          python src/prepare_deployment.py
+
+      - name: Show deployment folder
+        run: |
+          ls -la deployment/
+
+      - name: Build Docker image
+        run: |
+          docker build -t champion-inference-api:latest deployment
+
+      - name: Save Docker image as tar
+        run: |
+          docker save -o champion-inference-api.tar champion-inference-api:latest
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: champion-docker-image
+          path: champion-inference-api.tar
